@@ -1,0 +1,6 @@
+{
+  "name": "SHEQ Inspection Management",
+  "description": "Internal SHEQ inspection management system with role-based access for inspectors and actioners.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

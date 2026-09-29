@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "User": {
+      "collection": "users",
+      "fields": {
+        "uid": { "type": "string", "required": true },
+        "fullName": { "type": "string", "required": true },
+        "email": { "type": "string", "required": true },
+        "role": { "type": "string", "required": true, "enum": ["admin", "actioner"] },
+        "active": { "type": "boolean", "required": true },
+        "createdAt": { "type": "string", "required": true },
+        "updatedAt": { "type": "string", "required": true }
+      }
+    },
+    "SystemConfig": {
+      "collection": "system_config",
+      "fields": {
+        "initialAdminSetupComplete": { "type": "boolean", "required": true },
+        "firstAdminUid": { "type": "string", "required": true },
+        "firstAdminEmail": { "type": "string", "required": true },
+        "completedAt": { "type": "string", "required": true }
+      }
+    },
+    "SystemCounter": {
+      "collection": "system_counters",
+      "fields": {
+        "year": { "type": "number", "required": true },
+        "currentCount": { "type": "number", "required": true },
+        "updatedAt": { "type": "string", "required": true }
+      }
+    },
+    "Department": {
+      "collection": "departments",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "displayOrder": { "type": "number", "required": true },
+        "active": { "type": "boolean", "required": true },
+        "colorCode": { "type": "string", "required": false },
+        "createdAt": { "type": "string", "required": true },
+        "updatedAt": { "type": "string", "required": true }
+      }
+    },
+    "Inspection": {
+      "collection": "inspections",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "inspectionNumber": { "type": "string", "required": true },
+        "inspectionDate": { "type": "string", "required": true },
+        "departmentId": { "type": "string", "required": true },
+        "departmentNameSnapshot": { "type": "string", "required": true },
+        "inspectorUserId": { "type": "string", "required": true },
+        "inspectorNameSnapshot": { "type": "string", "required": true },
+        "title": { "type": "string", "required": true },
+        "generalComments": { "type": "string", "required": false },
+        "status": { "type": "string", "required": true, "enum": ["Draft", "Completed", "Archived"] },
+        "createdAt": { "type": "string", "required": true },
+        "updatedAt": { "type": "string", "required": true },
+        "createdByUserId": { "type": "string", "required": true },
+        "updatedByUserId": { "type": "string", "required": true }
+      }
+    },
+    "Finding": {
+      "collection": "findings",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "inspectionId": { "type": "string", "required": true },
+        "findingNumber": { "type": "number", "required": true },
+        "title": { "type": "string", "required": true },
+        "description": { "type": "string", "required": true },
+        "location": { "type": "string", "required": true },
+        "riskLevel": { "type": "string", "required": true, "enum": ["Low", "Medium", "High", "Critical"] },
+        "recommendedAction": { "type": "string", "required": true },
+        "assignedToUserId": { "type": "string", "required": true },
+        "assignedToUserNameSnapshot": { "type": "string", "required": true },
+        "dueDate": { "type": "string", "required": true },
+        "status": { "type": "string", "required": true, "enum": ["Open", "In Progress", "Completed", "Overdue", "Closed"] },
+        "inspectorComments": { "type": "string", "required": false },
+        "photoIds": { "type": "array", "required": false },
+        "createdAt": { "type": "string", "required": true },
+        "updatedAt": { "type": "string", "required": true },
+        "createdByUserId": { "type": "string", "required": true },
+        "updatedByUserId": { "type": "string", "required": true }
+      }
+    },
+    "Action": {
+      "collection": "actions",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "inspectionId": { "type": "string", "required": true },
+        "findingId": { "type": "string", "required": true },
+        "title": { "type": "string", "required": true },
+        "description": { "type": "string", "required": true },
+        "riskLevel": { "type": "string", "required": true, "enum": ["Low", "Medium", "High", "Critical"] },
+        "assignedToUserId": { "type": "string", "required": true },
+        "assignedToUserNameSnapshot": { "type": "string", "required": true },
+        "departmentId": { "type": "string", "required": false },
+        "departmentNameSnapshot": { "type": "string", "required": false },
+        "dueDate": { "type": "string", "required": true },
+        "status": { "type": "string", "required": true, "enum": ["Open", "In Progress", "Completed", "Overdue", "Closed"] },
+        "actionerComments": { "type": "string", "required": false },
+        "completionDate": { "type": "string", "required": false },
+        "evidencePhotoUrls": { "type": "array", "required": false },
+        "verifiedAt": { "type": "string", "required": false },
+        "verifiedByUserId": { "type": "string", "required": false },
+        "closedAt": { "type": "string", "required": false },
+        "closedByUserId": { "type": "string", "required": false },
+        "createdAt": { "type": "string", "required": true },
+        "updatedAt": { "type": "string", "required": true },
+        "createdByUserId": { "type": "string", "required": true },
+        "updatedByUserId": { "type": "string", "required": true }
+      }
+    },
+    "PhotoMetadata": {
+      "collection": "photos",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "inspectionId": { "type": "string", "required": true },
+        "findingId": { "type": "string", "required": false },
+        "actionId": { "type": "string", "required": false },
+        "uploadedByUserId": { "type": "string", "required": true },
+        "storagePath": { "type": "string", "required": true },
+        "downloadUrl": { "type": "string", "required": true },
+        "fileName": { "type": "string", "required": true },
+        "contentType": { "type": "string", "required": true },
+        "fileSize": { "type": "number", "required": true },
+        "caption": { "type": "string", "required": false },
+        "createdAt": { "type": "string", "required": true }
+      }
+    }
+  }
+}

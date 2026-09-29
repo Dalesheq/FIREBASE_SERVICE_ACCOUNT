@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: sheq-api
+    runtime: node
+    plan: free
+    region: frankfurt # Or oregon / ohio
+    rootDir: .
+    buildCommand: npm install && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false # Set in Render Dashboard
+      - key: FIREBASE_PROJECT_ID
+        value: gen-lang-client-0206733447
+      - key: FIREBASE_FIRESTORE_DATABASE_ID
+        value: ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729
+      - key: FRONTEND_ORIGIN
+        sync: false # Set to your Firebase Hosting URL (e.g., https://gen-lang-client-0206733447.web.app)

@@ -1,0 +1,215 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'sheq@spiralsystems.co.za' ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'Admin'] &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        )
+      );
+    }
+
+    function isActioner() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['actioner', 'Actioner'] &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    // System config for initial administrator bootstrap
+    match /system_config/{configId} {
+      allow read: if isSignedIn();
+
+      // Only allows creation of 'setup' doc once if it doesn't already exist,
+      // and caller must set firstAdminUid to their own auth.uid
+      allow create: if isSignedIn() &&
+        configId == 'setup' &&
+        !exists(/databases/$(database)/documents/system_config/setup) &&
+        request.resource.data.initialAdminSetupComplete == true &&
+        request.resource.data.firstAdminUid == request.auth.uid;
+
+      // Only an active admin can update system_config
+      allow update: if isAdmin();
+
+      // System config can NEVER be deleted, permanently locking the bootstrap
+      allow delete: if false;
+    }
+
+    // Atomic inspection counters for sequence generation (INS-YYYY-NNNN)
+    match /system_counters/{counterId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // User can read their own profile; only active admin can read all profiles
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+      // Only active admin can list the users collection
+      allow list: if isAdmin();
+
+      // User creation:
+      // 1. Standard actioner registration: strictly requires role == 'actioner' for own uid
+      // 2. Initial admin bootstrap: strictly requires that system_config/setup exists
+      //    AND the document's firstAdminUid matches request.auth.uid
+      // 3. Admin can provision active actioner user profiles for team members (e.g. Japie, Hannes)
+      allow create: if isSignedIn() && (
+        (
+          request.auth.uid == userId && (
+            (
+              request.resource.data.role == 'actioner' &&
+              request.resource.data.active == true &&
+              request.resource.data.uid == request.auth.uid
+            ) ||
+            (
+              request.resource.data.role == 'admin' &&
+              request.resource.data.active == true &&
+              request.resource.data.uid == request.auth.uid &&
+              exists(/databases/$(database)/documents/system_config/setup) &&
+              get(/databases/$(database)/documents/system_config/setup).data.firstAdminUid == request.auth.uid
+            )
+          )
+        ) ||
+        (
+          isAdmin() &&
+          request.resource.data.role == 'actioner' &&
+          request.resource.data.active == true &&
+          request.resource.data.uid == userId
+        )
+      );
+
+      // User updates:
+      // 1. Admin can update any user profile (e.g. role, active status)
+      // 2. Individual user can ONLY update their own fullName and updatedAt.
+      //    Role, active, email, and uid cannot be changed by the user.
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (
+          request.auth.uid == userId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.active == resource.data.active &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'updatedAt'])
+        )
+      );
+
+      // Only active admin can delete users
+      allow delete: if isAdmin();
+    }
+
+    // Departments collection: active departments readable by authenticated users; write restricted to admin
+    match /departments/{deptId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Inspections collection: strictly restricted to Admin (actioners cannot browse inspections)
+    match /inspections/{inspectionId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Findings collection:
+    // Admin has full access. Actioners can only read findings directly assigned to their UID.
+    match /findings/{findingId} {
+      allow write: if isAdmin();
+      allow get: if isSignedIn() && (
+        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+      );
+    }
+
+    // Actions collection:
+    // Admin can get, list, create, update, and delete all actions.
+    // Actioner can ONLY get and list actions where assignedToUserId == request.auth.uid.
+    match /actions/{actionId} {
+      allow get: if isSignedIn() && (
+        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+      );
+
+      // Only admin can create or delete actions
+      allow create, delete: if isAdmin();
+
+      // Updates: Actioner can ONLY update permitted actioner fields on their own assigned action
+      // Actioner CANNOT close the action (status: 'Closed' prohibited), reassign, or alter risk/due dates.
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          resource.data.assignedToUserId == request.auth.uid &&
+          request.resource.data.assignedToUserId == resource.data.assignedToUserId &&
+          request.resource.data.inspectionId == resource.data.inspectionId &&
+          request.resource.data.findingId == resource.data.findingId &&
+          request.resource.data.riskLevel == resource.data.riskLevel &&
+          request.resource.data.dueDate == resource.data.dueDate &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'actionerComments', 'completionDate', 'evidencePhotoUrls', 'updatedAt', 'updatedByUserId'
+          ]) &&
+          request.resource.data.status in ['Open', 'In Progress', 'Completed']
+        )
+      );
+    }
+
+    // Photos collection
+    match /photos/{photoId} {
+      // Get (single doc): Admin can read any photo.
+      // Actioners can read inspection photos and their own / assigned evidence photos.
+      allow get: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.photoType == 'inspection' ||
+        resource.data.assignedToUserId == request.auth.uid ||
+        resource.data.uploadedByUserId == request.auth.uid
+      );
+
+      // List (query): Admin can list any photo.
+      // Actioners can list inspection photos and their own / assigned evidence photos.
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.photoType == 'inspection' ||
+        resource.data.assignedToUserId == request.auth.uid ||
+        resource.data.uploadedByUserId == request.auth.uid
+      );
+
+      // Create:
+      // Admin can upload inspection photos or evidence photos.
+      // Actioner can upload evidence photos for their assigned actions.
+      allow create: if isSignedIn() && (
+        isAdmin() || (
+          isActioner() &&
+          request.resource.data.photoType == 'evidence' &&
+          request.resource.data.uploadedByUserId == request.auth.uid
+        )
+      );
+
+      // Update: Admin or photo uploader updating only caption and timestamp.
+      // Relational keys (inspectionId, findingId, actionId, photoType, uploadedByUserId, assignedToUserId, storagePath) are immutable.
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          resource.data.uploadedByUserId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['caption', 'updatedAt'])
+        )
+      );
+
+      // Delete: Admin can delete any photo.
+      // Actioner can only delete their own uploaded evidence photo.
+      allow delete: if isSignedIn() && (
+        isAdmin() || (
+          isActioner() &&
+          resource.data.photoType == 'evidence' &&
+          resource.data.uploadedByUserId == request.auth.uid
+        )
+      );
+    }
+  }
+}

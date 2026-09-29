@@ -1,0 +1,94 @@
+// ==============================================================================
+// NOTICE: FIREBASE CLOUD STORAGE IS NO LONGER USED BY THIS APPLICATION.
+// Photograph binaries are stored exclusively in Supabase Storage Free Tier
+// (private bucket: 'sheq-photos') to prevent Blaze plan billing charges.
+// Firebase Authentication and Cloud Firestore continue to serve as the
+// authoritative identity and metadata store.
+// This file is retained solely for architectural documentation and history.
+// ==============================================================================
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSheqAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'sheq@spiralsystems.co.za' ||
+        (request.auth.token.keys().hasAny(['admin']) && request.auth.token.admin == true) ||
+        (request.auth.token.keys().hasAny(['role']) && request.auth.token.role == 'admin') ||
+        (
+          firestore.exists(/databases/ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729/documents/users/$(request.auth.uid)) &&
+          firestore.get(/databases/ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+          firestore.get(/databases/ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729/documents/users/$(request.auth.uid)).data.active == true
+        )
+      );
+    }
+
+    function isValidImage() {
+      return request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|jpg)');
+    }
+
+    function isActionAssignedToUser(actionId) {
+      return (
+        firestore.exists(/databases/ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729/documents/actions/$(actionId)) &&
+        firestore.get(/databases/ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729/documents/actions/$(actionId)).data.assignedToUserId == request.auth.uid
+      ) || (
+        firestore.exists(/databases/(default)/documents/actions/$(actionId)) &&
+        firestore.get(/databases/(default)/documents/actions/$(actionId)).data.assignedToUserId == request.auth.uid
+      );
+    }
+
+    function isFindingAssignedToUser(findingId) {
+      return (
+        firestore.exists(/databases/ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729/documents/findings/$(findingId)) &&
+        firestore.get(/databases/ai-studio-sheqinspectionma-4abefbf2-9ba0-4a2c-b1b2-e5df5e3a2729/documents/findings/$(findingId)).data.assignedToUserId == request.auth.uid
+      ) || (
+        firestore.exists(/databases/(default)/documents/findings/$(findingId)) &&
+        firestore.get(/databases/(default)/documents/findings/$(findingId)).data.assignedToUserId == request.auth.uid
+      );
+    }
+
+    // 1. Inspection photographs taken by inspectors against findings
+    match /inspections/{inspectionId}/findings/{findingId}/inspection/{photoId}_{fileName} {
+      // Read: Admin can read all inspection photos.
+      // Actioners can read ONLY if the finding is assigned to them.
+      allow read: if isSignedIn() && (isSheqAdmin() || isFindingAssignedToUser(findingId));
+
+      // Inspection photos can only be created by SHEQ Admin
+      allow write: if isSheqAdmin() && isValidImage();
+
+      // Inspection photos can only be deleted by SHEQ Admin
+      allow delete: if isSheqAdmin();
+    }
+
+    // 2. Corrective action evidence photographs uploaded by assigned actioners
+    match /inspections/{inspectionId}/findings/{findingId}/actions/{actionId}/evidence/{uploaderUid}/{photoId}_{fileName} {
+      // Read: Admin can read all evidence. Actioner can read only if assigned and uploader matches.
+      allow read: if isSignedIn() && (
+        isSheqAdmin() ||
+        (request.auth.uid == uploaderUid && isActionAssignedToUser(actionId))
+      );
+
+      // Write: Uploader must match auth UID, action must be assigned to this user, and must be valid image <= 10MB.
+      allow write: if isSignedIn() && (
+        isSheqAdmin() ||
+        (request.auth.uid == uploaderUid && isActionAssignedToUser(actionId))
+      ) && isValidImage();
+
+      // Delete: Admin or assigned uploader can delete.
+      allow delete: if isSignedIn() && (
+        isSheqAdmin() ||
+        (request.auth.uid == uploaderUid && isActionAssignedToUser(actionId))
+      );
+    }
+
+    // Default catch-all: Deny all unhandled paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
