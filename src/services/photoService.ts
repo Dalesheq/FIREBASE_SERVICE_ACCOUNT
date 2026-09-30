@@ -517,6 +517,7 @@ export async function uploadInspectionPhoto(
     sizeBytes: compressedBlob.size,
     inspectionId: params.inspectionId,
     findingId: params.findingId,
+    assignedToUserId: params.assignedToUserId,
     photoType: 'inspection',
     caption: params.caption,
     uploaderUserId: params.uploaderUserId,
@@ -604,6 +605,8 @@ export function subscribePhotosByFinding(
     where('findingId', '==', findingId)
   );
 
+  let unsubFallback: (() => void) | null = null;
+
   const unsubFirestore = onSnapshot(
     q,
     async (snapshot) => {
@@ -612,11 +615,31 @@ export function subscribePhotosByFinding(
         .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
       await emitMerged();
     },
-    (err) => {
-      console.warn(`Firestore photo subscription fallback to local store for finding ${findingId}:`, err);
-      emitMerged();
+    () => {
+      // If non-admin actioner query requires explicit assignedToUserId filter per Firestore Security Rules
+      const uid = auth.currentUser?.uid;
+      if (uid && !unsubFallback) {
+        const qScoped = query(
+          collection(db, PHOTOS_COLLECTION),
+          where('findingId', '==', findingId),
+          where('assignedToUserId', '==', uid)
+        );
+        unsubFallback = onSnapshot(
+          qScoped,
+          async (snapScoped) => {
+            latestRemotePhotos = snapScoped.docs
+              .map((d) => d.data() as PhotoMetadata)
+              .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+            await emitMerged();
+          },
+          () => {
+            emitMerged();
+          }
+        );
+      } else {
+        emitMerged();
+      }
       if (onError && mergeWithLocalPhotos([], (p) => p.findingId === findingId).length === 0) {
-        // Still allow UI to work with local photos without blocking
         onUpdate([]);
       }
     }
@@ -625,6 +648,7 @@ export function subscribePhotosByFinding(
   return () => {
     photoStoreListeners.delete(localListener);
     unsubFirestore();
+    if (unsubFallback) unsubFallback();
   };
 }
 
@@ -665,6 +689,8 @@ export function subscribePhotosByAction(
     where('actionId', '==', actionId)
   );
 
+  let unsubFallback: (() => void) | null = null;
+
   const unsubFirestore = onSnapshot(
     q,
     async (snapshot) => {
@@ -673,9 +699,29 @@ export function subscribePhotosByAction(
         .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
       await emitMerged();
     },
-    (err) => {
-      console.warn(`Firestore photo subscription fallback to local store for action ${actionId}:`, err);
-      emitMerged();
+    () => {
+      const uid = auth.currentUser?.uid;
+      if (uid && !unsubFallback) {
+        const qScoped = query(
+          collection(db, PHOTOS_COLLECTION),
+          where('actionId', '==', actionId),
+          where('assignedToUserId', '==', uid)
+        );
+        unsubFallback = onSnapshot(
+          qScoped,
+          async (snapScoped) => {
+            latestRemotePhotos = snapScoped.docs
+              .map((d) => d.data() as PhotoMetadata)
+              .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+            await emitMerged();
+          },
+          () => {
+            emitMerged();
+          }
+        );
+      } else {
+        emitMerged();
+      }
       if (onError && mergeWithLocalPhotos([], (p) => p.actionId === actionId).length === 0) {
         onUpdate([]);
       }
@@ -685,6 +731,7 @@ export function subscribePhotosByAction(
   return () => {
     photoStoreListeners.delete(localListener);
     unsubFirestore();
+    if (unsubFallback) unsubFallback();
   };
 }
 
@@ -740,28 +787,58 @@ export async function ensureJpegDataUrl(urlOrDataUrl?: string): Promise<string> 
 }
 
 /**
- * Synchronizes any photos uploaded for the given findingIds so their inspectionId
- * matches the finalized inspectionId in both localStorage and Firestore.
+ * Synchronizes any photos uploaded for the given findings so their inspectionId
+ * and assignedToUserId match the finalized inspection and finding allocation.
  */
 export async function syncPhotosToInspection(
   inspectionId: string,
-  findingIds: string[]
+  findingsInput: Array<
+    | string
+    | {
+        id?: string;
+        assignedToUserId?: string;
+        assignedToUserNameSnapshot?: string;
+      }
+  >
 ): Promise<void> {
-  if (!inspectionId || !findingIds || findingIds.length === 0) return;
-  const findingIdSet = new Set(findingIds.filter(Boolean));
-  if (findingIdSet.size === 0) return;
+  if (!inspectionId || !findingsInput || findingsInput.length === 0) return;
+  const findingMetaMap = new Map<
+    string,
+    { assignedToUserId?: string; assignedToUserNameSnapshot?: string }
+  >();
+  for (const item of findingsInput) {
+    if (typeof item === 'string' && item) {
+      findingMetaMap.set(item, {});
+    } else if (item && typeof item === 'object' && item.id) {
+      findingMetaMap.set(item.id, {
+        assignedToUserId: item.assignedToUserId,
+        assignedToUserNameSnapshot: item.assignedToUserNameSnapshot,
+      });
+    }
+  }
+  if (findingMetaMap.size === 0) return;
 
   try {
     const localIndex = loadLocalPhotosIndex();
     let changed = false;
     for (const [id, photo] of Object.entries(localIndex)) {
-      if (photo.findingId && findingIdSet.has(photo.findingId) && photo.inspectionId !== inspectionId) {
-        localIndex[id] = {
-          ...photo,
-          inspectionId,
-          storagePath: `inspections/${inspectionId}/findings/${photo.findingId}/${photo.id}_${photo.fileName || 'photo.jpg'}`,
-        };
-        changed = true;
+      if (photo.findingId && findingMetaMap.has(photo.findingId)) {
+        const meta = findingMetaMap.get(photo.findingId);
+        const nextAssignee = meta?.assignedToUserId || photo.assignedToUserId || '';
+        const nextAssigneeName = meta?.assignedToUserNameSnapshot || photo.assignedToUserNameSnapshot || '';
+        if (
+          photo.inspectionId !== inspectionId ||
+          (nextAssignee && photo.assignedToUserId !== nextAssignee)
+        ) {
+          localIndex[id] = {
+            ...photo,
+            inspectionId,
+            assignedToUserId: nextAssignee,
+            assignedToUserNameSnapshot: nextAssigneeName,
+            storagePath: `inspections/${inspectionId}/findings/${photo.findingId}/${photo.id}_${photo.fileName || 'photo.jpg'}`,
+          };
+          changed = true;
+        }
       }
     }
     if (changed) {
@@ -772,15 +849,22 @@ export async function syncPhotosToInspection(
     // ignore localStorage errors
   }
 
-  for (const fId of findingIdSet) {
+  for (const [fId, meta] of findingMetaMap.entries()) {
     try {
       const q = query(collection(db, PHOTOS_COLLECTION), where('findingId', '==', fId));
       const snap = await getDocs(q);
       for (const d of snap.docs) {
         const data = d.data() as PhotoMetadata;
-        if (data.inspectionId !== inspectionId) {
+        const nextAssignee = meta.assignedToUserId || data.assignedToUserId || '';
+        const nextAssigneeName = meta.assignedToUserNameSnapshot || data.assignedToUserNameSnapshot || '';
+        if (
+          data.inspectionId !== inspectionId ||
+          (nextAssignee && data.assignedToUserId !== nextAssignee)
+        ) {
           await updateDoc(d.ref, {
             inspectionId,
+            ...(nextAssignee ? { assignedToUserId: nextAssignee } : {}),
+            ...(nextAssigneeName ? { assignedToUserNameSnapshot: nextAssigneeName } : {}),
             updatedAt: new Date().toISOString(),
           }).catch(() => {});
         }

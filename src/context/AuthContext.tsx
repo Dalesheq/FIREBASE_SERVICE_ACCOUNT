@@ -62,11 +62,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const profile = await getUserProfile(fbUser.uid);
+      let profile = await getUserProfile(fbUser.uid);
+      if (!profile && fbUser.email) {
+        const cleanEmail = fbUser.email.trim().toLowerCase();
+        const fallbackName =
+          fbUser.displayName?.trim() ||
+          cleanEmail.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) ||
+          'Actioner';
+
+        if (cleanEmail === 'sheq@spiralsystems.co.za') {
+          try {
+            profile = await bootstrapInitialAdmin(fbUser.uid, fallbackName, cleanEmail);
+            setInitialAdminExists(true);
+          } catch {
+            profile = await getUserProfile(fbUser.uid);
+          }
+        } else {
+          try {
+            profile = await createActionerProfile(fbUser.uid, fallbackName, cleanEmail);
+          } catch {
+            profile = await getUserProfile(fbUser.uid);
+          }
+        }
+      }
+
       if (profile) {
         setCurrentUser(profile);
       } else {
-        // Profile does not exist yet (e.g. during edge-case transition)
         setCurrentUser(null);
       }
     } catch (error) {

@@ -15,15 +15,17 @@ export const ActionerSummaryCards: React.FC<ActionerSummaryCardsProps> = ({
   onSelectFilter,
 }) => {
   const total = actions.length;
+  const activeCount = actions.filter((a) => a.status === 'Open' || a.status === 'In Progress').length;
   const openCount = actions.filter((a) => a.status === 'Open').length;
   const inProgressCount = actions.filter((a) => a.status === 'In Progress').length;
-  const completedCount = actions.filter((a) => a.status === 'Completed').length;
+  const resolvedCount = actions.filter((a) => a.status === 'Completed' || a.status === 'Closed').length;
   const overdueCount = actions.filter((a) => isActionOverdue(a.dueDate, a.status)).length;
 
   const cards = [
     {
       id: 'all',
-      title: 'Total Actions',
+      title: 'All Allocated',
+      subtitle: 'Current & Past',
       count: total,
       icon: ClipboardList,
       color: 'text-slate-800',
@@ -32,9 +34,10 @@ export const ActionerSummaryCards: React.FC<ActionerSummaryCardsProps> = ({
       badgeBg: 'bg-slate-100 text-slate-700',
     },
     {
-      id: 'Open',
-      title: 'Open',
-      count: openCount,
+      id: 'Active',
+      title: 'Currently Allocated',
+      subtitle: 'Open & In Progress',
+      count: activeCount,
       icon: Clock,
       color: 'text-sky-700',
       bgColor: 'bg-sky-50/50',
@@ -44,6 +47,7 @@ export const ActionerSummaryCards: React.FC<ActionerSummaryCardsProps> = ({
     {
       id: 'In Progress',
       title: 'In Progress',
+      subtitle: `${openCount} Open`,
       count: inProgressCount,
       icon: PlayCircle,
       color: 'text-amber-700',
@@ -52,9 +56,10 @@ export const ActionerSummaryCards: React.FC<ActionerSummaryCardsProps> = ({
       badgeBg: 'bg-amber-100 text-amber-800',
     },
     {
-      id: 'Completed',
-      title: 'Completed',
-      count: completedCount,
+      id: 'History',
+      title: 'Previously Allocated',
+      subtitle: 'Completed & Closed',
+      count: resolvedCount,
       icon: CheckCircle2,
       color: 'text-emerald-700',
       bgColor: 'bg-emerald-50/50',
@@ -64,6 +69,7 @@ export const ActionerSummaryCards: React.FC<ActionerSummaryCardsProps> = ({
     {
       id: 'Overdue',
       title: 'Overdue',
+      subtitle: 'Needs Immediate Action',
       count: overdueCount,
       icon: AlertTriangle,
       color: 'text-red-700',

@@ -102,21 +102,49 @@ export async function checkInitialAdminStatus(): Promise<{ adminExists: boolean;
 /**
  * Standard user registration profile creation.
  * Enforces role: 'actioner'. Regular users can NEVER choose admin.
+ * Automatically links any pre-allocated actions matching the actioner's email to their UID.
  */
 export async function createActionerProfile(uid: string, fullName: string, email: string): Promise<UserProfile> {
   const now = new Date().toISOString();
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = fullName.trim();
   const profile: UserProfile = {
     uid,
-    fullName: fullName.trim(),
-    email: email.trim().toLowerCase(),
+    fullName: cleanName,
+    email: cleanEmail,
     role: 'actioner', // Strictly enforced as actioner
     active: true,
     createdAt: now,
     updatedAt: now,
   };
 
+  try {
+    localStorage.setItem(`sheq_user_profile_${uid}`, JSON.stringify(profile));
+  } catch {
+    // ignore storage errors
+  }
+
   const userDocRef = doc(db, USERS_COLLECTION, uid);
   await setDoc(userDocRef, profile);
+
+  // Claim any actions that were pre-allocated to this email address prior to registration
+  if (cleanEmail) {
+    getDocs(query(collection(db, 'actions'), where('assignedToUserEmail', '==', cleanEmail)))
+      .then((snap) => {
+        snap.docs.forEach((d) => {
+          const data = d.data();
+          if (data.assignedToUserId !== uid) {
+            updateDoc(d.ref, {
+              assignedToUserId: uid,
+              updatedAt: now,
+              updatedByUserId: uid,
+            }).catch(() => {});
+          }
+        });
+      })
+      .catch(() => {});
+  }
+
   return profile;
 }
 
@@ -173,7 +201,9 @@ export async function getAllUsers(): Promise<UserProfile[]> {
 }
 
 /**
- * Retrieves active actioner users for allocation by the inspector (e.g. Japie, Hannes).
+ * Retrieves all active actioner users for allocation by the inspector.
+ * Deduplicates pre-provisioned placeholder profiles when an actioner self-registers with the same email/name,
+ * preferring the real Firebase Auth UID and migrating any legacy placeholder assignments automatically.
  */
 export async function getActiveActioners(): Promise<UserProfile[]> {
   try {
@@ -181,7 +211,62 @@ export async function getActiveActioners(): Promise<UserProfile[]> {
     const q = query(usersRef, where('active', '==', true));
     const snapshot = await getDocs(q);
     const users = snapshot.docs.map((d) => d.data() as UserProfile);
-    const actioners = users.filter((u) => u.role === 'actioner');
+    const rawActioners = users.filter((u) => u.role === 'actioner' && u.active !== false);
+
+    // Deduplicate by email (and normalized name) preferring real Firebase Auth UIDs over synthetic 'actioner_*' IDs
+    const byKey = new Map<string, UserProfile>();
+    const syntheticToRealUid = new Map<string, UserProfile>();
+
+    for (const u of rawActioners) {
+      const key = (u.email || u.fullName || u.uid).trim().toLowerCase();
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, u);
+      } else {
+        const existingIsSynthetic = existing.uid.startsWith('actioner_');
+        const currentIsSynthetic = u.uid.startsWith('actioner_');
+        if (existingIsSynthetic && !currentIsSynthetic) {
+          syntheticToRealUid.set(existing.uid, u);
+          byKey.set(key, u);
+        } else if (!existingIsSynthetic && currentIsSynthetic) {
+          syntheticToRealUid.set(u.uid, existing);
+        }
+      }
+    }
+
+    // Background migration: if a pre-provisioned actioner self-registered, link their existing actions/findings
+    if (syntheticToRealUid.size > 0) {
+      for (const [oldUid, realProfile] of syntheticToRealUid.entries()) {
+        getDocs(query(collection(db, 'actions'), where('assignedToUserId', '==', oldUid)))
+          .then((snap) => {
+            snap.docs.forEach((d) => {
+              updateDoc(d.ref, {
+                assignedToUserId: realProfile.uid,
+                assignedToUserEmail: realProfile.email.toLowerCase(),
+                assignedToUserNameSnapshot: realProfile.fullName,
+              }).catch(() => {});
+            });
+          })
+          .catch(() => {});
+
+        getDocs(query(collection(db, 'findings'), where('assignedToUserId', '==', oldUid)))
+          .then((snap) => {
+            snap.docs.forEach((d) => {
+              updateDoc(d.ref, {
+                assignedToUserId: realProfile.uid,
+                assignedToUserEmail: realProfile.email.toLowerCase(),
+                assignedToUserNameSnapshot: realProfile.fullName,
+              }).catch(() => {});
+            });
+          })
+          .catch(() => {});
+      }
+    }
+
+    const actioners = Array.from(byKey.values()).sort((a, b) =>
+      (a.fullName || '').localeCompare(b.fullName || '')
+    );
+
     if (actioners.length > 0) {
       try {
         localStorage.setItem('sheq_cached_actioners', JSON.stringify(actioners));

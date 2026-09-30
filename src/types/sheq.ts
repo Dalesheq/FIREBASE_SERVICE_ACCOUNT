@@ -46,8 +46,9 @@ export interface Finding {
   location: string;
   riskLevel: RiskLevel;
   recommendedAction: string;
-  assignedToUserId: string; // Firebase UID of Actioner (Japie or Hannes)
+  assignedToUserId: string; // Firebase UID of Actioner
   assignedToUserNameSnapshot: string;
+  assignedToUserEmail?: string;
   departmentNameSnapshot?: string;
   inspectionNumberSnapshot?: string;
   inspectionDateSnapshot?: string;
@@ -70,6 +71,7 @@ export interface Action {
   riskLevel: RiskLevel;
   assignedToUserId: string; // Authoritative Firebase UID
   assignedToUserNameSnapshot: string;
+  assignedToUserEmail?: string;
   departmentId?: string;
   departmentNameSnapshot?: string;
   inspectionNumberSnapshot?: string;
@@ -100,6 +102,8 @@ export interface PhotoMetadata {
   uploadedByUserId: string;
   uploadedByNameSnapshot?: string;
   assignedToUserId?: string;
+  assignedToUserNameSnapshot?: string;
+  assignedToUserEmail?: string;
   photoType: PhotoType;
   storagePath: string;
   downloadUrl: string;

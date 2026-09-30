@@ -279,14 +279,16 @@ export const ActionDetailModal: React.FC<ActionDetailModalProps> = ({
                 )}
                 <span
                   className={`px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider border ${
-                    action.status === 'Completed'
+                    action.status === 'Closed'
+                      ? 'bg-slate-800 text-white border-slate-900'
+                      : action.status === 'Completed'
                       ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                       : action.status === 'In Progress'
                       ? 'bg-amber-100 text-amber-800 border-amber-300'
                       : 'bg-sky-100 text-sky-800 border-sky-300'
                   }`}
                 >
-                  {action.status}
+                  {action.status === 'Closed' ? 'Closed (Verified)' : action.status}
                 </span>
               </div>
             </div>
@@ -425,20 +427,23 @@ export const ActionDetailModal: React.FC<ActionDetailModalProps> = ({
                 rows={3}
                 value={actionerComments}
                 onChange={(e) => setActionerComments(e.target.value)}
+                disabled={action.status === 'Closed'}
                 placeholder="Detail the work carried out, parts replaced, or corrective steps taken..."
-                className="w-full text-xs p-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white"
+                className="w-full text-xs p-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white disabled:bg-slate-100 disabled:text-slate-600"
               />
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleSaveComments}
-                  disabled={savingComments}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  <Save className="h-3.5 w-3.5" />
-                  {savingComments ? 'Saving...' : 'Save Comments'}
-                </button>
-              </div>
+              {action.status !== 'Closed' && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSaveComments}
+                    disabled={savingComments}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    {savingComments ? 'Saving...' : 'Save Comments'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Completed Notice if already completed */}
@@ -458,6 +463,29 @@ export const ActionDetailModal: React.FC<ActionDetailModalProps> = ({
                 </div>
                 <div className="text-slate-500 text-[11px]">
                   This task is now awaiting Administrator review, verification, and closure.
+                </div>
+              </div>
+            )}
+
+            {/* Closed Notice if verified and closed by Administrator */}
+            {action.status === 'Closed' && (
+              <div className="p-3.5 bg-slate-900 text-white border border-slate-800 rounded-xl text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-emerald-400">
+                  <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                  Verified &amp; Closed by Administrator (Historical Record)
+                </div>
+                <div className="text-slate-300 text-[11px]">
+                  Closed timestamp:{' '}
+                  <strong>
+                    {action.closedAt
+                      ? new Date(action.closedAt).toLocaleString()
+                      : action.completionDate
+                      ? new Date(action.completionDate).toLocaleString()
+                      : 'Verified'}
+                  </strong>
+                </div>
+                <div className="text-slate-400 text-[11px]">
+                  This corrective action was previously allocated to you and has been verified and permanently closed.
                 </div>
               </div>
             )}

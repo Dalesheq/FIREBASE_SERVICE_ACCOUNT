@@ -29,6 +29,7 @@ export interface CreateFindingInput {
   recommendedAction: string;
   assignedToUserId: string; // Actioner UID
   assignedToUserNameSnapshot: string;
+  assignedToUserEmail?: string;
   dueDate: string;          // ISO YYYY-MM-DD
   inspectorComments?: string;
   status?: ActionStatus;
@@ -63,6 +64,8 @@ export async function createFindingWithAction(
   const findingId = `fnd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const actionId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
+  const assignedEmail = (input.assignedToUserEmail || '').trim().toLowerCase();
+
   const newFinding: Finding = {
     id: findingId,
     inspectionId: input.inspectionId,
@@ -74,6 +77,7 @@ export async function createFindingWithAction(
     recommendedAction: input.recommendedAction.trim(),
     assignedToUserId: input.assignedToUserId,
     assignedToUserNameSnapshot: input.assignedToUserNameSnapshot,
+    ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
     dueDate: input.dueDate,
     status,
     inspectorComments: input.inspectorComments?.trim() || '',
@@ -92,6 +96,7 @@ export async function createFindingWithAction(
     riskLevel: input.riskLevel,
     assignedToUserId: input.assignedToUserId,
     assignedToUserNameSnapshot: input.assignedToUserNameSnapshot,
+    ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
     departmentId: inspection.departmentId,
     departmentNameSnapshot: inspection.departmentNameSnapshot,
     dueDate: input.dueDate,

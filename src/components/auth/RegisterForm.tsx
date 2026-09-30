@@ -68,8 +68,8 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
       <div className="p-3 bg-slate-100 border border-slate-200 rounded-lg flex items-start gap-2.5 text-xs text-slate-700">
         <ShieldCheck className="h-4 w-4 text-slate-600 shrink-0 mt-0.5" />
         <div>
-          <span className="font-semibold text-slate-900">Role Enforcement: </span>
-          All standard registrations are provisioned as <strong>Actioner</strong>. For safety compliance, administrative and inspection privileges are controlled by the system administrator.
+          <span className="font-semibold text-slate-900">Actioner Registration &amp; Privacy: </span>
+          Any departmental team member can register an <strong>Actioner</strong> account. You will exclusively see corrective actions currently and previously allocated to you.
         </div>
       </div>
 

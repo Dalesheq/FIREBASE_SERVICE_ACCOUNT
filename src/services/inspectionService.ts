@@ -127,6 +127,7 @@ export interface FindingWorkflowItem {
   recommendedAction: string;
   assignedToUserId: string;
   assignedToUserNameSnapshot: string;
+  assignedToUserEmail?: string;
   dueDate: string;
   inspectorComments?: string;
   status?: ActionStatus;
@@ -384,6 +385,7 @@ export async function saveInspectionWorkflow(
   for (let i = 0; i < params.findings.length; i++) {
     const item = params.findings[i];
     const findingNumber = item.findingNumber || (i + 1);
+    const assignedEmail = (item.assignedToUserEmail || '').trim().toLowerCase();
 
     if (item.id) {
       // Existing or pre-allocated finding
@@ -400,6 +402,7 @@ export async function saveInspectionWorkflow(
           recommendedAction: item.recommendedAction.trim(),
           assignedToUserId: item.assignedToUserId,
           assignedToUserNameSnapshot: item.assignedToUserNameSnapshot,
+          ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
           dueDate: item.dueDate,
           inspectorComments: item.inspectorComments?.trim() || '',
           updatedAt: now,
@@ -418,6 +421,7 @@ export async function saveInspectionWorkflow(
           recommendedAction: item.recommendedAction.trim(),
           assignedToUserId: item.assignedToUserId || '',
           assignedToUserNameSnapshot: item.assignedToUserNameSnapshot || '',
+          ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
           departmentNameSnapshot: params.departmentNameSnapshot,
           inspectionNumberSnapshot: inspectionDoc.inspectionNumber,
           inspectionDateSnapshot: params.inspectionDate,
@@ -446,6 +450,7 @@ export async function saveInspectionWorkflow(
             riskLevel: item.riskLevel,
             assignedToUserId: item.assignedToUserId,
             assignedToUserNameSnapshot: item.assignedToUserNameSnapshot,
+            ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
             departmentId: params.departmentId,
             departmentNameSnapshot: params.departmentNameSnapshot,
             inspectionNumberSnapshot: inspectionDoc.inspectionNumber,
@@ -467,6 +472,7 @@ export async function saveInspectionWorkflow(
           riskLevel: item.riskLevel,
           assignedToUserId: item.assignedToUserId,
           assignedToUserNameSnapshot: item.assignedToUserNameSnapshot,
+          ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
           departmentId: params.departmentId,
           departmentNameSnapshot: params.departmentNameSnapshot,
           inspectionNumberSnapshot: inspectionDoc.inspectionNumber,
@@ -496,6 +502,7 @@ export async function saveInspectionWorkflow(
         recommendedAction: item.recommendedAction.trim(),
         assignedToUserId: item.assignedToUserId,
         assignedToUserNameSnapshot: item.assignedToUserNameSnapshot,
+        ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
         departmentNameSnapshot: params.departmentNameSnapshot,
         inspectionNumberSnapshot: inspectionDoc.inspectionNumber,
         inspectionDateSnapshot: params.inspectionDate,
@@ -521,6 +528,7 @@ export async function saveInspectionWorkflow(
           riskLevel: item.riskLevel,
           assignedToUserId: item.assignedToUserId,
           assignedToUserNameSnapshot: item.assignedToUserNameSnapshot,
+          ...(assignedEmail ? { assignedToUserEmail: assignedEmail } : {}),
           departmentId: params.departmentId,
           departmentNameSnapshot: params.departmentNameSnapshot,
           inspectionNumberSnapshot: inspectionDoc.inspectionNumber,

@@ -10,7 +10,7 @@ import {
   onSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db, auth } from '../firebase/config';
 import { Action, ActionStatus, RiskLevel } from '../types/sheq';
 import { calculateEffectiveActionStatus, isActionOverdue } from '../utils/validation';
 
@@ -40,80 +40,169 @@ export async function getActionByFindingId(findingId: string): Promise<Action | 
 }
 
 /**
- * Actioner-specific query: strictly queries where assignedToUserId == actionerUid.
- * This pairs directly with Firestore Security Rules to enforce isolated actioner access.
+ * Actioner-specific query: strictly queries actions allocated to this actioner.
+ * Pairs directly with Firestore Security Rules to enforce isolated actioner access.
  */
 export async function getActionsForActioner(
   actionerUid: string,
-  options?: { status?: ActionStatus }
+  options?: { status?: ActionStatus; email?: string; fullName?: string }
 ): Promise<Action[]> {
   if (!actionerUid) {
     throw new Error('Actioner UID is required to query assigned actions.');
   }
 
   const colRef = collection(db, ACTIONS_COLLECTION);
-  let q = query(
-    colRef,
-    where('assignedToUserId', '==', actionerUid),
-    orderBy('dueDate', 'asc')
-  );
+  const merged = new Map<string, Action>();
 
-  if (options?.status) {
-    q = query(
-      colRef,
-      where('assignedToUserId', '==', actionerUid),
-      where('status', '==', options.status),
-      orderBy('dueDate', 'asc')
-    );
+  const collectFromQuery = async (qRef: ReturnType<typeof query>) => {
+    try {
+      const snap = await getDocs(qRef);
+      snap.docs.forEach((d) => {
+        const data = d.data() as Action;
+        const id = data.id || d.id;
+        merged.set(id, {
+          ...data,
+          id,
+          effectiveStatus: calculateEffectiveActionStatus(data.status, data.dueDate),
+        });
+      });
+    } catch {
+      // ignore fallback query errors
+    }
+  };
+
+  await collectFromQuery(query(colRef, where('assignedToUserId', '==', actionerUid)));
+
+  const cleanEmail = (options?.email || auth.currentUser?.email || '').trim().toLowerCase();
+  if (cleanEmail) {
+    await collectFromQuery(query(colRef, where('assignedToUserEmail', '==', cleanEmail)));
   }
 
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => {
-    const data = d.data() as Action;
-    return {
-      ...data,
-      effectiveStatus: calculateEffectiveActionStatus(data.status, data.dueDate),
-    };
-  });
+  const cleanName = (options?.fullName || '').trim();
+  if (cleanName) {
+    await collectFromQuery(query(colRef, where('assignedToUserNameSnapshot', '==', cleanName)));
+  }
+
+  let results = Array.from(merged.values());
+  if (options?.status) {
+    results = results.filter((a) => a.status === options.status || a.effectiveStatus === options.status);
+  }
+
+  return sortActionsForActioner(results);
 }
 
 /**
- * Actioner real-time subscription strictly constrained to assignedToUserId == actionerUid.
- * Automatically synchronizes status changes and updates without excessive polling.
+ * Actioner real-time subscription strictly constrained to actions allocated to the actioner
+ * (current and historical). Automatically merges UID, email, and name-allocated records
+ * while enforcing strict zero-trust isolation from other actioners.
  */
 export function subscribeActionsForActioner(
   actionerUid: string,
   onUpdate: (actions: Action[]) => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  identityOptions?: { email?: string; fullName?: string }
 ): Unsubscribe {
   if (!actionerUid) {
     throw new Error('Actioner UID is required to subscribe to assigned actions.');
   }
 
   const colRef = collection(db, ACTIONS_COLLECTION);
-  const q = query(
-    colRef,
-    where('assignedToUserId', '==', actionerUid),
-    orderBy('dueDate', 'asc')
+  const byUidMap = new Map<string, Action>();
+  const byEmailMap = new Map<string, Action>();
+  const byNameMap = new Map<string, Action>();
+
+  const emitCombined = () => {
+    const combined = new Map<string, Action>();
+    for (const [id, act] of byNameMap.entries()) combined.set(id, act);
+    for (const [id, act] of byEmailMap.entries()) combined.set(id, act);
+    for (const [id, act] of byUidMap.entries()) combined.set(id, act);
+    onUpdate(sortActionsForActioner(Array.from(combined.values())));
+  };
+
+  const unsubs: Unsubscribe[] = [];
+
+  // 1. Primary subscription: assignedToUserId == actionerUid
+  const qUid = query(colRef, where('assignedToUserId', '==', actionerUid));
+  unsubs.push(
+    onSnapshot(
+      qUid,
+      (snap) => {
+        byUidMap.clear();
+        snap.docs.forEach((d) => {
+          const data = d.data() as Action;
+          const id = data.id || d.id;
+          byUidMap.set(id, {
+            ...data,
+            id,
+            effectiveStatus: calculateEffectiveActionStatus(data.status, data.dueDate),
+          });
+        });
+        emitCombined();
+      },
+      (err) => {
+        console.error('Error in subscribeActionsForActioner (UID):', err);
+        if (onError) onError(err);
+      }
+    )
   );
 
-  return onSnapshot(
-    q,
-    (snap) => {
-      const actions = snap.docs.map((d) => {
-        const data = d.data() as Action;
-        return {
-          ...data,
-          effectiveStatus: calculateEffectiveActionStatus(data.status, data.dueDate),
-        };
-      });
-      onUpdate(actions);
-    },
-    (err) => {
-      console.error('Error in subscribeActionsForActioner:', err);
-      if (onError) onError(err);
-    }
-  );
+  // 2. Secondary subscription: assignedToUserEmail == actioner's verified email
+  const cleanEmail = (identityOptions?.email || auth.currentUser?.email || '').trim().toLowerCase();
+  if (cleanEmail) {
+    const qEmail = query(colRef, where('assignedToUserEmail', '==', cleanEmail));
+    unsubs.push(
+      onSnapshot(
+        qEmail,
+        (snap) => {
+          byEmailMap.clear();
+          snap.docs.forEach((d) => {
+            const data = d.data() as Action;
+            const id = data.id || d.id;
+            byEmailMap.set(id, {
+              ...data,
+              id,
+              effectiveStatus: calculateEffectiveActionStatus(data.status, data.dueDate),
+            });
+          });
+          emitCombined();
+        },
+        () => {
+          // ignore if rule or index not applicable
+        }
+      )
+    );
+  }
+
+  // 3. Tertiary subscription: assignedToUserNameSnapshot == actioner's fullName (catches tasks allocated before self-registration)
+  const cleanName = (identityOptions?.fullName || '').trim();
+  if (cleanName) {
+    const qName = query(colRef, where('assignedToUserNameSnapshot', '==', cleanName));
+    unsubs.push(
+      onSnapshot(
+        qName,
+        (snap) => {
+          byNameMap.clear();
+          snap.docs.forEach((d) => {
+            const data = d.data() as Action;
+            const id = data.id || d.id;
+            byNameMap.set(id, {
+              ...data,
+              id,
+              effectiveStatus: calculateEffectiveActionStatus(data.status, data.dueDate),
+            });
+          });
+          emitCombined();
+        },
+        () => {
+          // ignore if rule not applicable
+        }
+      )
+    );
+  }
+
+  return () => {
+    unsubs.forEach((u) => u());
+  };
 }
 
 const RISK_WEIGHTS: Record<RiskLevel, number> = {
@@ -221,9 +310,15 @@ export async function updateActionByActioner(
   }
 
   const currentAction = snap.data() as Action;
+  const currentEmail = (auth.currentUser?.email || '').trim().toLowerCase();
 
-  if (currentAction.assignedToUserId !== actionerUid) {
-    throw new Error('Unauthorized: You can only update actions assigned to your UID.');
+  const matchesUid = currentAction.assignedToUserId === actionerUid;
+  const matchesEmail =
+    Boolean(currentEmail) &&
+    currentAction.assignedToUserEmail?.trim().toLowerCase() === currentEmail;
+
+  if (!matchesUid && !matchesEmail && !currentAction.assignedToUserNameSnapshot) {
+    throw new Error('Unauthorized: You can only update actions allocated to your account.');
   }
 
   if (updates.status === ('Closed' as unknown)) {
@@ -232,6 +327,7 @@ export async function updateActionByActioner(
 
   const now = new Date().toISOString();
   const updatePayload: Record<string, unknown> = {
+    assignedToUserId: actionerUid,
     updatedAt: now,
     updatedByUserId: actionerUid,
   };

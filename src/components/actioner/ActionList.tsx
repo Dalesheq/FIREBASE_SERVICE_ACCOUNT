@@ -38,9 +38,15 @@ export const ActionList: React.FC<ActionListProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
-  // 1. Filter by status / overdue tab
+  // 1. Filter by status / overdue / allocation history tab
   const filteredByTab = useMemo(() => {
     if (selectedFilter === 'all') return actions;
+    if (selectedFilter === 'Active') {
+      return actions.filter((a) => a.status === 'Open' || a.status === 'In Progress');
+    }
+    if (selectedFilter === 'History') {
+      return actions.filter((a) => a.status === 'Completed' || a.status === 'Closed');
+    }
     if (selectedFilter === 'Overdue') {
       return actions.filter((a) => isActionOverdue(a.dueDate, a.status));
     }
@@ -68,10 +74,13 @@ export const ActionList: React.FC<ActionListProps> = ({
   }, [filteredBySearch]);
 
   const filterTabs = [
-    { id: 'all', label: 'All Actions' },
+    { id: 'all', label: 'All Allocated (Is & Was)' },
+    { id: 'Active', label: 'Currently Allocated' },
+    { id: 'History', label: 'Previously Allocated (Done)' },
     { id: 'Open', label: 'Open' },
     { id: 'In Progress', label: 'In Progress' },
     { id: 'Completed', label: 'Completed' },
+    { id: 'Closed', label: 'Closed' },
     { id: 'Overdue', label: 'Overdue' },
   ];
 
@@ -219,14 +228,16 @@ export const ActionList: React.FC<ActionListProps> = ({
                     {/* Status Badge */}
                     <span
                       className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                        action.status === 'Completed'
+                        action.status === 'Closed'
+                          ? 'bg-slate-800 text-white border-slate-900'
+                          : action.status === 'Completed'
                           ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                           : action.status === 'In Progress'
                           ? 'bg-amber-100 text-amber-800 border-amber-300'
                           : 'bg-sky-100 text-sky-800 border-sky-300'
                       }`}
                     >
-                      {action.status}
+                      {action.status === 'Closed' ? 'Closed (Verified)' : action.status}
                     </span>
                   </div>
 

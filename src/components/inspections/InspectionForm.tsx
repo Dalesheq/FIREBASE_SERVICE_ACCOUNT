@@ -28,7 +28,7 @@ import {
   seedDepartments,
   INITIAL_DEPARTMENTS,
 } from '../../services/departmentService';
-import { getActiveActioners, ensureStandardActioners } from '../../services/userService';
+import { getActiveActioners, ensureStandardActioners, provisionActionerByAdmin } from '../../services/userService';
 import {
   FindingWorkflowItem,
   saveInspectionWorkflow,
@@ -94,6 +94,10 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
   // Modals
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [findingToDeleteIndex, setFindingToDeleteIndex] = useState<number | null>(null);
+  const [quickAddActionerIndex, setQuickAddActionerIndex] = useState<number | null>(null);
+  const [newActionerName, setNewActionerName] = useState('');
+  const [newActionerEmail, setNewActionerEmail] = useState('');
+  const [addingActioner, setAddingActioner] = useState(false);
 
   // Load Reference Data and Existing Inspection (if editing)
   useEffect(() => {
@@ -172,6 +176,7 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
                 recommendedAction: f.recommendedAction,
                 assignedToUserId: f.assignedToUserId,
                 assignedToUserNameSnapshot: f.assignedToUserNameSnapshot,
+                assignedToUserEmail: f.assignedToUserEmail || '',
                 dueDate: f.dueDate,
                 inspectorComments: f.inspectorComments || '',
                 status: f.status,
@@ -242,6 +247,7 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
       recommendedAction: '',
       assignedToUserId: defaultActioner?.uid || '',
       assignedToUserNameSnapshot: defaultActioner?.fullName || '',
+      assignedToUserEmail: defaultActioner?.email || '',
       dueDate: defaultDue.toISOString().slice(0, 10),
       inspectorComments: '',
     };
@@ -316,11 +322,12 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
       const copy = [...prev];
       const item = { ...copy[index], [field]: value };
 
-      // If updating assignedToUserId, automatically sync assignedToUserNameSnapshot
+      // If updating assignedToUserId, automatically sync assignedToUserNameSnapshot and assignedToUserEmail
       if (field === 'assignedToUserId') {
         const found = actioners.find((a) => a.uid === value);
         if (found) {
           item.assignedToUserNameSnapshot = found.fullName;
+          item.assignedToUserEmail = found.email || '';
         }
       }
 
@@ -336,6 +343,42 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
         delete c[errKey];
         return c;
       });
+    }
+  };
+
+  // Inline quick-add for a new departmental actioner during inspection
+  const handleQuickAddActioner = async (findingIndex: number) => {
+    const cleanName = newActionerName.trim();
+    const cleanEmail = newActionerEmail.trim().toLowerCase();
+    if (!cleanName || !cleanEmail) return;
+
+    setAddingActioner(true);
+    try {
+      const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      const uid = `actioner_${slug}_${Date.now().toString(36)}`;
+      const created = await provisionActionerByAdmin(uid, cleanName, cleanEmail);
+      const refreshed = await getActiveActioners();
+      setActioners(refreshed);
+
+      setIsDirty(true);
+      setFindings((prev) => {
+        const copy = [...prev];
+        copy[findingIndex] = {
+          ...copy[findingIndex],
+          assignedToUserId: created.uid,
+          assignedToUserNameSnapshot: created.fullName,
+          assignedToUserEmail: created.email,
+        };
+        return copy;
+      });
+
+      setNewActionerName('');
+      setNewActionerEmail('');
+      setQuickAddActionerIndex(null);
+    } catch (err) {
+      console.warn('Failed to quick-add actioner:', err);
+    } finally {
+      setAddingActioner(false);
     }
   };
 
@@ -474,11 +517,8 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
         }
       }
 
-      // Ensure any photos uploaded while creating/editing findings are linked to the finalized inspection ID
-      await syncPhotosToInspection(
-        result.inspection.id,
-        findings.map((f) => f.id)
-      );
+      // Ensure any photos uploaded while creating/editing findings are linked to the finalized inspection ID and actioner
+      await syncPhotosToInspection(result.inspection.id, findings);
 
       setIsDirty(false);
       setSaveSuccessMsg(
@@ -1047,9 +1087,23 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Actioner Dropdown: Loaded from active Firestore actioners */}
                             <div>
-                              <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-1">
-                                Allocate Corrective Action To *
-                              </label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-800">
+                                  Allocate Corrective Action To *
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setQuickAddActionerIndex(
+                                      quickAddActionerIndex === index ? null : index
+                                    )
+                                  }
+                                  className="text-[11px] font-bold text-sky-700 hover:text-sky-900 inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  {quickAddActionerIndex === index ? 'Cancel' : 'Add New Actioner'}
+                                </button>
+                              </div>
                               <select
                                 value={finding.assignedToUserId}
                                 onChange={(e) =>
@@ -1068,8 +1122,44 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({
                                   </option>
                                 ))}
                               </select>
+                              {quickAddActionerIndex === index && (
+                                <div className="mt-2 p-3 bg-white border border-sky-200 rounded-lg space-y-2 shadow-xs">
+                                  <div className="text-[11px] font-bold text-slate-800">
+                                    Provision New Actioner for Allocation
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <input
+                                      type="text"
+                                      value={newActionerName}
+                                      onChange={(e) => setNewActionerName(e.target.value)}
+                                      placeholder="Full Name (e.g. Pieter Botha)"
+                                      className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md"
+                                    />
+                                    <input
+                                      type="email"
+                                      value={newActionerEmail}
+                                      onChange={(e) => setNewActionerEmail(e.target.value)}
+                                      placeholder="Email (e.g. pieter@company.co.za)"
+                                      className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md"
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-slate-500">
+                                      When they register with this email, their allocated actions link automatically.
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={addingActioner || !newActionerName.trim() || !newActionerEmail.trim()}
+                                      onClick={() => handleQuickAddActioner(index)}
+                                      className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold rounded-md disabled:opacity-50 cursor-pointer"
+                                    >
+                                      {addingActioner ? 'Adding...' : 'Save & Allocate'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                               <p className="text-[11px] text-slate-500 mt-1">
-                                Japie Breitenbach & Hannes Bronkhorst are pre-configured.
+                                All registered &amp; provisioned actioners appear here. Each actioner only sees tasks allocated to them.
                               </p>
                               {validationErrors[`${findingErrPrefix}assignedToUserId`] && (
                                 <p className="text-rose-600 text-[11px] font-semibold mt-1">

@@ -118,43 +118,54 @@ service cloud.firestore {
     }
 
     // Findings collection:
-    // Admin has full access. Actioners can only read findings directly assigned to their UID.
+    // Admin has full access. Actioners can only read findings directly assigned to their UID or email.
     match /findings/{findingId} {
       allow write: if isAdmin();
       allow get: if isSignedIn() && (
-        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+        isAdmin() ||
+        resource.data.assignedToUserId == request.auth.uid ||
+        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
       );
       allow list: if isSignedIn() && (
-        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+        isAdmin() ||
+        resource.data.assignedToUserId == request.auth.uid ||
+        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
       );
     }
 
     // Actions collection:
     // Admin can get, list, create, update, and delete all actions.
-    // Actioner can ONLY get and list actions where assignedToUserId == request.auth.uid.
+    // Actioner can ONLY get and list actions where assignedToUserId == request.auth.uid (or assignedToUserEmail matches their auth email).
     match /actions/{actionId} {
       allow get: if isSignedIn() && (
-        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+        isAdmin() ||
+        resource.data.assignedToUserId == request.auth.uid ||
+        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
       );
       allow list: if isSignedIn() && (
-        isAdmin() || resource.data.assignedToUserId == request.auth.uid
+        isAdmin() ||
+        resource.data.assignedToUserId == request.auth.uid ||
+        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
       );
 
       // Only admin can create or delete actions
       allow create, delete: if isAdmin();
 
       // Updates: Actioner can ONLY update permitted actioner fields on their own assigned action
-      // Actioner CANNOT close the action (status: 'Closed' prohibited), reassign, or alter risk/due dates.
+      // Actioner CANNOT close the action (status: 'Closed' prohibited), reassign to others, or alter risk/due dates.
       allow update: if isSignedIn() && (
         isAdmin() || (
-          resource.data.assignedToUserId == request.auth.uid &&
-          request.resource.data.assignedToUserId == resource.data.assignedToUserId &&
+          (
+            resource.data.assignedToUserId == request.auth.uid ||
+            (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
+          ) &&
+          request.resource.data.assignedToUserId == request.auth.uid &&
           request.resource.data.inspectionId == resource.data.inspectionId &&
           request.resource.data.findingId == resource.data.findingId &&
           request.resource.data.riskLevel == resource.data.riskLevel &&
           request.resource.data.dueDate == resource.data.dueDate &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'actionerComments', 'completionDate', 'evidencePhotoUrls', 'updatedAt', 'updatedByUserId'
+            'assignedToUserId', 'status', 'actionerComments', 'completionDate', 'evidencePhotoUrls', 'updatedAt', 'updatedByUserId'
           ]) &&
           request.resource.data.status in ['Open', 'In Progress', 'Completed']
         )
@@ -169,7 +180,8 @@ service cloud.firestore {
         isAdmin() ||
         resource.data.photoType == 'inspection' ||
         resource.data.assignedToUserId == request.auth.uid ||
-        resource.data.uploadedByUserId == request.auth.uid
+        resource.data.uploadedByUserId == request.auth.uid ||
+        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
       );
 
       // List (query): Admin can list any photo.
@@ -178,7 +190,8 @@ service cloud.firestore {
         isAdmin() ||
         resource.data.photoType == 'inspection' ||
         resource.data.assignedToUserId == request.auth.uid ||
-        resource.data.uploadedByUserId == request.auth.uid
+        resource.data.uploadedByUserId == request.auth.uid ||
+        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
       );
 
       // Create:
