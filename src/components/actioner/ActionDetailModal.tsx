@@ -16,14 +16,16 @@ import {
   ShieldCheck,
   RotateCcw,
 } from 'lucide-react';
-import { Action, Finding, RiskLevel } from '../../types/sheq';
+import { Action, Finding, RiskLevel, Inspection } from '../../types/sheq';
 import { getFindingById } from '../../services/findingService';
+import { getInspectionById } from '../../services/inspectionService';
 import { updateActionByActioner } from '../../services/actionService';
 import { isActionOverdue } from '../../utils/validation';
 import { useAuth } from '../../context/AuthContext';
 import { ConfirmationModal } from '../common/ConfirmationModal';
 import { ActionEvidencePhotoSection } from '../photos/ActionEvidencePhotoSection';
 import { FindingPhotoSection } from '../photos/FindingPhotoSection';
+import { ReportPreviewModal } from '../admin/reports/ReportPreviewModal';
 
 interface ActionDetailModalProps {
   action: Action;
@@ -60,6 +62,30 @@ export const ActionDetailModal: React.FC<ActionDetailModalProps> = ({
 
   // Completion confirmation modal
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+
+  // Full Inspection Report Modal (with photos)
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportInspection, setReportInspection] = useState<Inspection | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  const handleOpenInspectionReport = async () => {
+    if (reportInspection) {
+      setShowReportModal(true);
+      return;
+    }
+    setLoadingReport(true);
+    try {
+      const insp = await getInspectionById(action.inspectionId);
+      if (insp) {
+        setReportInspection(insp);
+        setShowReportModal(true);
+      }
+    } catch (err) {
+      console.error('Failed to load inspection for report preview:', err);
+    } finally {
+      setLoadingReport(false);
+    }
+  };
 
   // Fetch linked finding observation details
   useEffect(() => {
@@ -492,14 +518,27 @@ export const ActionDetailModal: React.FC<ActionDetailModalProps> = ({
           </div>
 
           {/* Footer Action Controls */}
-          <div className="bg-slate-50 px-5 py-3.5 border-t border-slate-200 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors cursor-pointer"
-            >
-              Close
-            </button>
+          <div className="bg-slate-50 px-5 py-3.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenInspectionReport}
+                disabled={loadingReport}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-800 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                title="View Full Inspection Report with all photos"
+              >
+                <FileText className="h-3.5 w-3.5 text-amber-500" />
+                {loadingReport ? 'Loading Report...' : 'View Inspection Report'}
+              </button>
+            </div>
 
             <div className="flex items-center gap-2">
               {action.status === 'Open' && (
@@ -567,6 +606,14 @@ export const ActionDetailModal: React.FC<ActionDetailModalProps> = ({
           isLoading={updatingStatus}
           onConfirm={handleConfirmComplete}
           onCancel={() => setShowCompleteConfirm(false)}
+        />
+      )}
+
+      {/* Official Inspection Report Modal (Available to All Users and Actioners with Photos) */}
+      {showReportModal && reportInspection && (
+        <ReportPreviewModal
+          inspection={reportInspection}
+          onClose={() => setShowReportModal(false)}
         />
       )}
     </>

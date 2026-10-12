@@ -615,30 +615,9 @@ export function subscribePhotosByFinding(
         .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
       await emitMerged();
     },
-    () => {
-      // If non-admin actioner query requires explicit assignedToUserId filter per Firestore Security Rules
-      const uid = auth.currentUser?.uid;
-      if (uid && !unsubFallback) {
-        const qScoped = query(
-          collection(db, PHOTOS_COLLECTION),
-          where('findingId', '==', findingId),
-          where('assignedToUserId', '==', uid)
-        );
-        unsubFallback = onSnapshot(
-          qScoped,
-          async (snapScoped) => {
-            latestRemotePhotos = snapScoped.docs
-              .map((d) => d.data() as PhotoMetadata)
-              .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-            await emitMerged();
-          },
-          () => {
-            emitMerged();
-          }
-        );
-      } else {
-        emitMerged();
-      }
+    (err) => {
+      console.warn(`Photos by finding snapshot warning (${findingId}):`, err);
+      emitMerged();
       if (onError && mergeWithLocalPhotos([], (p) => p.findingId === findingId).length === 0) {
         onUpdate([]);
       }
@@ -699,29 +678,9 @@ export function subscribePhotosByAction(
         .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
       await emitMerged();
     },
-    () => {
-      const uid = auth.currentUser?.uid;
-      if (uid && !unsubFallback) {
-        const qScoped = query(
-          collection(db, PHOTOS_COLLECTION),
-          where('actionId', '==', actionId),
-          where('assignedToUserId', '==', uid)
-        );
-        unsubFallback = onSnapshot(
-          qScoped,
-          async (snapScoped) => {
-            latestRemotePhotos = snapScoped.docs
-              .map((d) => d.data() as PhotoMetadata)
-              .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-            await emitMerged();
-          },
-          () => {
-            emitMerged();
-          }
-        );
-      } else {
-        emitMerged();
-      }
+    (err) => {
+      console.warn(`Photos by action snapshot warning (${actionId}):`, err);
+      emitMerged();
       if (onError && mergeWithLocalPhotos([], (p) => p.actionId === actionId).length === 0) {
         onUpdate([]);
       }

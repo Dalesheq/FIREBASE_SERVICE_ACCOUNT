@@ -112,41 +112,22 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Inspections collection: strictly restricted to Admin (actioners cannot browse inspections)
+    // Inspections collection: All authenticated users can read inspections so all reports and views are available to all users.
     match /inspections/{inspectionId} {
-      allow read, write: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
-    // Findings collection:
-    // Admin has full access. Actioners can only read findings directly assigned to their UID or email.
+    // Findings collection: All authenticated users can read findings so photos and findings are visible on all reports to all users.
     match /findings/{findingId} {
+      allow read: if isSignedIn();
       allow write: if isAdmin();
-      allow get: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.assignedToUserId == request.auth.uid ||
-        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
-      );
-      allow list: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.assignedToUserId == request.auth.uid ||
-        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
-      );
     }
 
     // Actions collection:
-    // Admin can get, list, create, update, and delete all actions.
-    // Actioner can ONLY get and list actions where assignedToUserId == request.auth.uid (or assignedToUserEmail matches their auth email).
+    // All authenticated users can read actions so reports, evidence notes, and verified statuses can be viewed across all reports.
     match /actions/{actionId} {
-      allow get: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.assignedToUserId == request.auth.uid ||
-        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
-      );
-      allow list: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.assignedToUserId == request.auth.uid ||
-        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
-      );
+      allow read: if isSignedIn();
 
       // Only admin can create or delete actions
       allow create, delete: if isAdmin();
@@ -172,27 +153,12 @@ service cloud.firestore {
       );
     }
 
-    // Photos collection
+    // Photos collection:
+    // ALL PHOTOS MUST BE AVAILABLE ON ALL REPORTS AND TO ALL USERS.
+    // Any signed-in user can read and list all photos so images are visible everywhere.
     match /photos/{photoId} {
-      // Get (single doc): Admin can read any photo.
-      // Actioners can read inspection photos and their own / assigned evidence photos.
-      allow get: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.photoType == 'inspection' ||
-        resource.data.assignedToUserId == request.auth.uid ||
-        resource.data.uploadedByUserId == request.auth.uid ||
-        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
-      );
-
-      // List (query): Admin can list any photo.
-      // Actioners can list inspection photos and their own / assigned evidence photos.
-      allow list: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.photoType == 'inspection' ||
-        resource.data.assignedToUserId == request.auth.uid ||
-        resource.data.uploadedByUserId == request.auth.uid ||
-        (resource.data.assignedToUserEmail is string && request.auth.token.email is string && resource.data.assignedToUserEmail == request.auth.token.email)
-      );
+      // Get & List: All authenticated users can view all inspection and evidence photos across all reports.
+      allow read: if isSignedIn();
 
       // Create:
       // Admin can upload inspection photos or evidence photos.

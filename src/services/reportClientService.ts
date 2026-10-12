@@ -446,7 +446,7 @@ export async function generateInspectionReportPdf(
   options?: GenerateReportOptions
 ): Promise<Blob> {
   if (!auth.currentUser) {
-    throw new Error('Authentication required. You must be signed in as an administrator.');
+    throw new Error('Authentication required. You must be signed in.');
   }
 
   // 1. Resolve authoritative inspection, findings, actions, and photos on the client first

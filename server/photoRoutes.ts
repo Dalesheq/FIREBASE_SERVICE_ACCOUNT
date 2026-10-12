@@ -270,23 +270,8 @@ photoRouter.post('/signed-url', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Photograph metadata not found.' });
     }
 
-    const isAdmin = await isUserAdmin(caller, token);
-
-    // Authorization verification
-    if (photo.photoType === 'evidence') {
-      const assignedTo = photo.assignedToUserId;
-      const uploadedBy = photo.uploadedByUserId;
-      if (assignedTo !== caller.uid && uploadedBy !== caller.uid && !isAdmin) {
-        return res.status(403).json({
-          error: 'Access denied: You are not authorized to view this corrective action evidence.',
-        });
-      }
-    } else if (photo.photoType === 'inspection') {
-      // Inspectors/admins can view; assigned actioners can view if linked to their finding
-      if (!isAdmin && photo.assignedToUserId && photo.assignedToUserId !== caller.uid) {
-        return res.status(403).json({ error: 'Access denied to this inspection photograph.' });
-      }
-    }
+    // Authorization: All authenticated users are authorized to view inspection and evidence photos across all reports.
+    // Deactivated accounts are already filtered out above.
 
     if (photo.downloadUrl && String(photo.downloadUrl).startsWith('data:image/')) {
       return res.json({ signedUrl: photo.downloadUrl, expiresIn: 3600 });
@@ -329,19 +314,12 @@ photoRouter.post('/signed-urls', async (req: Request, res: Response) => {
       return res.json({ urls: {} });
     }
 
-    const isAdmin = await isUserAdmin(caller, token);
     const urls: Record<string, string> = {};
 
     for (const id of photoIds.slice(0, 50)) {
       try {
         const photo = await getFirestoreDoc(`photos/${id}`, token);
         if (!photo) continue;
-
-        if (photo.photoType === 'evidence') {
-          if (photo.assignedToUserId !== caller.uid && photo.uploadedByUserId !== caller.uid && !isAdmin) {
-            continue; // Skip unauthorized
-          }
-        }
 
         if (photo.downloadUrl && String(photo.downloadUrl).startsWith('data:image/')) {
           urls[id] = photo.downloadUrl;

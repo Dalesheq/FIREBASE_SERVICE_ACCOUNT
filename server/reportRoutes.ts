@@ -14,14 +14,14 @@ reportRouter.get('/status', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     engine: 'PDFKit',
-    roleRequired: 'Admin',
+    roleRequired: 'Authenticated',
     format: 'application/pdf',
   });
 });
 
 /**
  * Core handler to generate inspection PDF.
- * Enforces strict Admin-Only authorization and relational validation.
+ * Validates authentication and relational data with full photo embedding for all users.
  */
 async function handleGenerateReport(req: Request, res: Response) {
   try {
@@ -39,14 +39,6 @@ async function handleGenerateReport(req: Request, res: Response) {
     } catch (authErr: any) {
       return res.status(401).json({
         error: authErr.message || 'Authentication failed. Invalid or expired Firebase token.',
-      });
-    }
-
-    // 2. Authoritative Active Admin Authorization Check
-    const isAdmin = await isUserAdmin(caller, token);
-    if (!isAdmin) {
-      return res.status(403).json({
-        error: 'Access denied: Only active SHEQ Administrators may access or generate inspection reports.',
       });
     }
 
